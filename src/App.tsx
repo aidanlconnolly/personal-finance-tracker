@@ -192,7 +192,11 @@ export default function App() {
           <>
             <IncomeAndBufferEditor
               jobStartDate={state.jobStartDate}
+              incomeMode={state.incomeMode}
               annualIncome={state.annualIncome}
+              hourlyRate={state.hourlyRate}
+              hoursPerWeek={state.hoursPerWeek}
+              weeksPerYear={state.weeksPerYear}
               filingStatus={state.filingStatus}
               minimumCashBuffer={state.minimumCashBuffer}
               onUpdate={(p) => update(p as Partial<AppState>)}

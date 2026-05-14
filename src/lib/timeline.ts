@@ -1,5 +1,5 @@
 import type { AppState, PlannedSell } from "../types";
-import { CARD_DUE_DAY, CARD_LABEL } from "../types";
+import { CARD_DUE_DAY, CARD_LABEL, grossAnnualIncome } from "../types";
 import { pickLotsForMonth, OVERPULL_RATIO } from "./taxOptimizer";
 
 export const HORIZON_MONTHS = 24;
@@ -60,7 +60,7 @@ function liquidCash(state: AppState): number {
 }
 
 function monthlyIncomeAfterTax(state: AppState): number {
-  return (state.annualIncome * 0.72) / 12;
+  return (grossAnnualIncome(state) * 0.72) / 12;
 }
 
 export function buildHorizonMonths(today: Date = new Date()): string[] {
@@ -84,13 +84,16 @@ export function buildEvents(state: AppState, today: Date = new Date()): Timeline
     for (const r of state.recurringExpenses) {
       if (r.startMonth && ymCompare(month, r.startMonth) < 0) continue;
       if (r.endMonth && ymCompare(month, r.endMonth) > 0) continue;
-      events.push({
-        id: `${r.id}-${month}`,
-        kind: "recurring",
-        date: dateStr(y, m, r.dayOfMonth),
-        label: r.label,
-        amount: -r.amount,
-      });
+      const days = r.daysOfMonth.length > 0 ? r.daysOfMonth : [1];
+      for (const d of days) {
+        events.push({
+          id: `${r.id}-${month}-${d}`,
+          kind: "recurring",
+          date: dateStr(y, m, d),
+          label: r.label,
+          amount: -r.amount,
+        });
+      }
     }
   }
 
@@ -123,7 +126,8 @@ export function buildEvents(state: AppState, today: Date = new Date()): Timeline
   }
 
   const jobStart = state.jobStartDate;
-  if (jobStart && state.annualIncome > 0) {
+  const grossAnnual = grossAnnualIncome(state);
+  if (jobStart && grossAnnual > 0) {
     const incomePerMonth = monthlyIncomeAfterTax(state);
     const jobStartParts = ymToParts(jobStart.slice(0, 7));
     const jobStartDay = Number(jobStart.slice(8, 10));
@@ -211,6 +215,8 @@ export function scheduleSells(
   const recs: PlannedSell[] = [];
   const synthetic: TimelineEvent[] = [];
   let cash = liquidCash(state);
+  const annual = grossAnnualIncome(state);
+  const sellableLots = state.lots.filter((l) => !l.excludeFromSelling);
 
   for (let i = 0; i < months.length; i++) {
     const month = months[i];
@@ -223,10 +229,10 @@ export function scheduleSells(
     const shortfall = state.minimumCashBuffer - ending;
     const target = shortfall * OVERPULL_RATIO;
     const picks = pickLotsForMonth(
-      state.lots,
+      sellableLots,
       alreadySold,
       target,
-      state.annualIncome,
+      annual,
       state.filingStatus,
       month
     );

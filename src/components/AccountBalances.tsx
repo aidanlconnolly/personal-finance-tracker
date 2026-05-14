@@ -24,8 +24,10 @@ const TYPE_COLORS: Record<Account["type"], string> = {
   liability: "bg-rose-900 text-rose-300",
 };
 
+type EditField = "balance" | "costBasis";
+
 export default function AccountBalances({ accounts, onUpdateAccount, onUpdateAccounts }: Props) {
-  const [editing, setEditing] = useState<string | null>(null);
+  const [editing, setEditing] = useState<{ id: string; field: EditField } | null>(null);
   const [draft, setDraft] = useState("");
   const [showAdd, setShowAdd] = useState(false);
   const [newAcct, setNewAcct] = useState<Omit<Account, "id">>({
@@ -35,15 +37,34 @@ export default function AccountBalances({ accounts, onUpdateAccount, onUpdateAcc
     balance: 0,
   });
 
-  const startEdit = (a: Account) => {
-    setEditing(a.id);
-    setDraft(a.balance.toString());
+  const startEdit = (id: string, field: EditField, current: string) => {
+    setEditing({ id, field });
+    setDraft(current);
   };
 
-  const commitEdit = (id: string) => {
+  const commitEdit = () => {
+    if (!editing) return;
     const val = parseFloat(draft);
-    if (!isNaN(val)) onUpdateAccount(id, val);
+    if (!isNaN(val)) {
+      if (editing.field === "balance") {
+        onUpdateAccount(editing.id, val);
+      } else {
+        onUpdateAccounts(
+          accounts.map((a) => (a.id === editing.id ? { ...a, costBasis: val } : a))
+        );
+      }
+    }
     setEditing(null);
+  };
+
+  const clearCostBasis = (id: string) => {
+    onUpdateAccounts(
+      accounts.map((a) => {
+        if (a.id !== id) return a;
+        const { costBasis: _omit, ...rest } = a;
+        return rest;
+      })
+    );
   };
 
   const deleteAccount = (id: string) => {
@@ -111,56 +132,125 @@ export default function AccountBalances({ accounts, onUpdateAccount, onUpdateAcc
               <th className="text-left pb-2 font-medium">Account</th>
               <th className="text-left pb-2 font-medium">Institution</th>
               <th className="text-left pb-2 font-medium">Type</th>
+              <th className="text-right pb-2 font-medium">Invested</th>
               <th className="text-right pb-2 font-medium">Balance</th>
+              <th className="text-right pb-2 font-medium">Gain/Loss</th>
               <th className="pb-2" />
             </tr>
           </thead>
           <tbody>
-            {accounts.map((a) => (
-              <tr key={a.id} className="border-b border-slate-800/50 last:border-0">
-                <td className="py-3 font-medium text-white">{a.name}</td>
-                <td className="py-3 text-slate-400">{a.institution}</td>
-                <td className="py-3">
-                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${TYPE_COLORS[a.type]}`}>
-                    {TYPE_LABELS[a.type]}
-                  </span>
-                </td>
-                <td className="py-3 text-right">
-                  {editing === a.id ? (
-                    <input
-                      autoFocus
-                      className="input w-32 text-right"
-                      value={draft}
-                      onChange={(e) => setDraft(e.target.value)}
-                      onBlur={() => commitEdit(a.id)}
-                      onKeyDown={(e) => e.key === "Enter" && commitEdit(a.id)}
-                    />
-                  ) : (
-                    <button
-                      onClick={() => startEdit(a)}
-                      className={`font-semibold hover:text-sky-300 transition-colors ${
-                        a.type === "liability" ? "text-rose-400" : "text-emerald-400"
-                      }`}
-                    >
-                      {fmt(a.balance)}
-                    </button>
-                  )}
-                </td>
-                <td className="py-3 pl-3 text-right">
-                  <button
-                    onClick={() => deleteAccount(a.id)}
-                    className="text-slate-600 hover:text-rose-400 transition-colors text-xs"
-                  >
-                    ✕
-                  </button>
-                </td>
-              </tr>
-            ))}
+            {accounts.map((a) => {
+              const isBrokerage = a.type === "brokerage";
+              const hasBasis = typeof a.costBasis === "number" && a.costBasis > 0;
+              const gain = hasBasis ? a.balance - (a.costBasis as number) : null;
+              const gainPct = hasBasis ? (gain! / (a.costBasis as number)) * 100 : null;
+
+              return (
+                <tr key={a.id} className="border-b border-slate-800/50 last:border-0">
+                  <td className="py-3 font-medium text-white">{a.name}</td>
+                  <td className="py-3 text-slate-400">{a.institution}</td>
+                  <td className="py-3">
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${TYPE_COLORS[a.type]}`}>
+                      {TYPE_LABELS[a.type]}
+                    </span>
+                  </td>
+                  <td className="py-3 text-right">
+                    {isBrokerage ? (
+                      editing?.id === a.id && editing.field === "costBasis" ? (
+                        <input
+                          autoFocus
+                          className="input w-28 text-right"
+                          value={draft}
+                          onChange={(e) => setDraft(e.target.value)}
+                          onBlur={commitEdit}
+                          onKeyDown={(e) => e.key === "Enter" && commitEdit()}
+                        />
+                      ) : hasBasis ? (
+                        <button
+                          onClick={() => startEdit(a.id, "costBasis", String(a.costBasis))}
+                          className="text-slate-300 hover:text-sky-300 transition-colors tabular-nums"
+                        >
+                          {fmt(a.costBasis as number)}
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => startEdit(a.id, "costBasis", "0")}
+                          className="text-slate-600 hover:text-sky-300 text-xs italic"
+                        >
+                          + set basis
+                        </button>
+                      )
+                    ) : (
+                      <span className="text-slate-700">—</span>
+                    )}
+                  </td>
+                  <td className="py-3 text-right">
+                    {editing?.id === a.id && editing.field === "balance" ? (
+                      <input
+                        autoFocus
+                        className="input w-32 text-right"
+                        value={draft}
+                        onChange={(e) => setDraft(e.target.value)}
+                        onBlur={commitEdit}
+                        onKeyDown={(e) => e.key === "Enter" && commitEdit()}
+                      />
+                    ) : (
+                      <button
+                        onClick={() => startEdit(a.id, "balance", a.balance.toString())}
+                        className={`font-semibold hover:text-sky-300 transition-colors ${
+                          a.type === "liability" ? "text-rose-400" : "text-emerald-400"
+                        }`}
+                      >
+                        {fmt(a.balance)}
+                      </button>
+                    )}
+                  </td>
+                  <td className="py-3 text-right">
+                    {gain === null ? (
+                      <span className="text-slate-700">—</span>
+                    ) : (
+                      <span
+                        className={`tabular-nums font-medium ${
+                          gain >= 0 ? "text-emerald-400" : "text-rose-400"
+                        }`}
+                      >
+                        {gain >= 0 ? "+" : ""}
+                        {fmt(gain)}
+                        <span className="text-xs font-normal opacity-70 ml-1">
+                          ({gainPct! >= 0 ? "+" : ""}
+                          {gainPct!.toFixed(1)}%)
+                        </span>
+                      </span>
+                    )}
+                  </td>
+                  <td className="py-3 pl-3 text-right">
+                    <div className="flex gap-2 justify-end items-center">
+                      {isBrokerage && hasBasis && (
+                        <button
+                          onClick={() => clearCostBasis(a.id)}
+                          className="text-slate-600 hover:text-slate-400 text-xs"
+                          title="Clear invested amount"
+                        >
+                          clr
+                        </button>
+                      )}
+                      <button
+                        onClick={() => deleteAccount(a.id)}
+                        className="text-slate-600 hover:text-rose-400 transition-colors text-xs"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
       <p className="text-slate-500 text-xs mt-3">
-        Click any balance to edit. Liquid cash for the timeline = sum of checking + savings.
+        Click any value to edit. Liquid cash for the timeline = checking + savings only. Brokerage balances roll into
+        net worth but aren't used to fund expenses. Add an Invested amount to see capital gains.
       </p>
     </section>
   );

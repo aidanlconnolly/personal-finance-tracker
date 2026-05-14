@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { StockLot } from "../types";
+import { importLotsFromCsv } from "../lib/csvImport";
 
 interface Props {
   lots: StockLot[];
@@ -45,6 +46,37 @@ export default function StockHoldings({ lots, onUpdateLots, onRefreshPrices, pri
     purchaseDate: new Date().toISOString().slice(0, 10),
     currentPrice: 0,
   });
+  const [importInstitution, setImportInstitution] = useState("SoFi");
+  const [importStatus, setImportStatus] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleCsvUpload = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const text = String(reader.result ?? "");
+      const result = importLotsFromCsv(text, importInstitution);
+      if (result.lots.length === 0) {
+        setImportStatus(
+          `No lots parsed. Expected headers like ${Object.keys(result.detectedColumns).length ? `(detected: ${Object.entries(result.detectedColumns).map(([k, v]) => `${k}=${v}`).join(", ")})` : "Ticker, Shares, Cost Basis, [Current Price], [Date]"}.`
+        );
+        return;
+      }
+      onUpdateLots([...lots, ...result.lots]);
+      setImportStatus(
+        `Imported ${result.lots.length} ${importInstitution} lot${result.lots.length === 1 ? "" : "s"}${
+          result.skippedRows > 0 ? `, skipped ${result.skippedRows} row${result.skippedRows === 1 ? "" : "s"}` : ""
+        }.`
+      );
+    };
+    reader.onerror = () => setImportStatus("Could not read file.");
+    reader.readAsText(file);
+  };
+
+  const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (f) handleCsvUpload(f);
+    e.target.value = "";
+  };
 
   const updateLotField = (id: string, field: EditField, raw: string) => {
     const lots2 = lots.map((l) => {
@@ -94,7 +126,26 @@ export default function StockHoldings({ lots, onUpdateLots, onRefreshPrices, pri
             </span>
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2 items-center">
+          <input
+            className="input w-28 text-xs"
+            value={importInstitution}
+            onChange={(e) => setImportInstitution(e.target.value)}
+            title="Institution tag for imported lots"
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="text-sm text-violet-400 hover:text-violet-300"
+          >
+            Import CSV
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".csv,text/csv"
+            className="hidden"
+            onChange={onFileChange}
+          />
           <button
             onClick={() => setShowAdd((v) => !v)}
             className="text-sm text-sky-400 hover:text-sky-300"
@@ -110,6 +161,12 @@ export default function StockHoldings({ lots, onUpdateLots, onRefreshPrices, pri
           </button>
         </div>
       </div>
+
+      {importStatus && (
+        <div className="mb-4 bg-violet-950/40 border border-violet-900/60 rounded-lg px-4 py-2 text-violet-200 text-xs">
+          {importStatus}
+        </div>
+      )}
 
       {priceError && (
         <div className="mb-4 bg-amber-950 border border-amber-700 rounded-lg px-4 py-2 text-amber-300 text-sm">
@@ -132,6 +189,7 @@ export default function StockHoldings({ lots, onUpdateLots, onRefreshPrices, pri
           <thead>
             <tr className="text-slate-400 border-b border-slate-800 text-xs uppercase tracking-wide">
               <th className="text-left pb-2 font-medium">Ticker</th>
+              <th className="text-left pb-2 font-medium">Inst.</th>
               <th className="text-right pb-2 font-medium">Shares</th>
               <th className="text-right pb-2 font-medium">Cost/sh</th>
               <th className="text-right pb-2 font-medium">Price</th>
@@ -141,6 +199,7 @@ export default function StockHoldings({ lots, onUpdateLots, onRefreshPrices, pri
               <th className="text-center pb-2 font-medium">90d</th>
               <th className="text-center pb-2 font-medium">Term</th>
               <th className="text-left pb-2 font-medium">Purchased</th>
+              <th className="text-center pb-2 font-medium" title="Exclude from sell scheduler">Lock</th>
               <th className="pb-2" />
             </tr>
           </thead>
@@ -171,9 +230,13 @@ export default function StockHoldings({ lots, onUpdateLots, onRefreshPrices, pri
                   </button>
                 );
 
+              const toggleLock = () =>
+                onUpdateLots(lots.map((x) => (x.id === l.id ? { ...x, excludeFromSelling: !x.excludeFromSelling } : x)));
+
               return (
-                <tr key={l.id} className="border-b border-slate-800/50 last:border-0">
+                <tr key={l.id} className={`border-b border-slate-800/50 last:border-0 ${l.excludeFromSelling ? "opacity-60" : ""}`}>
                   <td className="py-3 font-bold text-white">{l.ticker}</td>
+                  <td className="py-3 text-slate-500 text-xs">{l.institution ?? "—"}</td>
                   <td className="py-3 text-right text-slate-300">
                     <EditCell field="shares" value={l.shares.toString()} />
                   </td>
@@ -215,6 +278,15 @@ export default function StockHoldings({ lots, onUpdateLots, onRefreshPrices, pri
                       </button>
                     )}
                   </td>
+                  <td className="py-3 text-center">
+                    <button
+                      onClick={toggleLock}
+                      title={l.excludeFromSelling ? "Click to allow selling" : "Click to exclude from sell scheduler"}
+                      className={`text-lg ${l.excludeFromSelling ? "text-amber-400" : "text-slate-700 hover:text-slate-400"}`}
+                    >
+                      {l.excludeFromSelling ? "🔒" : "🔓"}
+                    </button>
+                  </td>
                   <td className="py-3 pl-3">
                     <button onClick={() => deleteLot(l.id)} className="text-slate-600 hover:text-rose-400 text-xs">✕</button>
                   </td>
@@ -224,7 +296,10 @@ export default function StockHoldings({ lots, onUpdateLots, onRefreshPrices, pri
           </tbody>
         </table>
       </div>
-      <p className="text-slate-500 text-xs mt-3">Click any cell to edit. LT = held &gt;1 year (long-term), ST = short-term.</p>
+      <p className="text-slate-500 text-xs mt-3">
+        Click any cell to edit. LT = held &gt;1 year. Lock (🔒) excludes a lot from the sell scheduler — use for Vanguard or
+        positions you don't want touched. Use the Import CSV button to bulk-add lots from a brokerage export.
+      </p>
     </section>
   );
 }

@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import type { CreditCardBill, CardKey } from "../types";
-import { CARD_DUE_DAY, CARD_LABEL } from "../types";
+import { CARD_DUE_DAY, CARD_LABEL, ALL_CARDS } from "../types";
 
 interface Props {
   bills: CreditCardBill[];
@@ -23,7 +23,7 @@ function monthLabel(month: string): string {
   return new Date(y, m - 1, 1).toLocaleString("en-US", { month: "short", year: "2-digit" });
 }
 
-const CARDS: CardKey[] = ["amex", "chase"];
+const CARDS: CardKey[] = ALL_CARDS;
 
 export default function CreditCardBillsEditor({ bills, onUpdate, monthsAhead = 12 }: Props) {
   const months = useMemo(() => nextMonths(monthsAhead), [monthsAhead]);
@@ -52,10 +52,10 @@ export default function CreditCardBillsEditor({ bills, onUpdate, monthsAhead = 1
   return (
     <section className="bg-slate-900 rounded-2xl p-6 border border-slate-800">
       <div className="mb-4">
-        <h2 className="text-lg font-semibold text-white">Credit card bills</h2>
+        <h2 className="text-lg font-semibold text-white">Credit card bills & debits</h2>
         <p className="text-slate-400 text-sm">
-          Amex due on the {CARD_DUE_DAY.amex}th, Chase due on the {CARD_DUE_DAY.chase}th. Enter the amount due each month.
-          Leave blank or zero to skip.
+          Amex {CARD_DUE_DAY.amex}th · Chase {CARD_DUE_DAY.chase}th · BOFA {CARD_DUE_DAY.bofa}th (straight debit). Enter the
+          amount each month; leave blank or zero to skip.
         </p>
       </div>
       <div className="overflow-x-auto">
